@@ -1,0 +1,878 @@
+---
+title: "qMSP_Automatized_Test1"
+author: "Alvaro Gutierrez"
+date: "2024-10-01"
+output:
+  html_document:
+    fig_caption: yes
+    toc: yes
+    toc_float: yes
+---
+
+### Libraries
+```{r,warning=FALSE,message=FALSE,echo=TRUE}
+library(readr)
+library(datasets)
+library(tidyverse)
+library(ggpubr)
+library(ggplot2)
+library(stringr)
+library(scales)
+library(plotly)
+library(reshape2)
+library(rstatix)
+library(summarytools)
+library(dplyr)
+library(readxl)
+library(gridExtra)
+```
+
+## Functions for Data Manipulation
+```{r,warning=FALSE,message=FALSE,echo=TRUE}
+##########################  Start
+##########################          Functions for Data Manipulation
+##########################
+
+#PreProcessing: Set_Names_and_Qty
+#Purpose: Dont even think on the name of the files and how many 
+#Parameters:
+#Returns: New index with old names and new names
+  ListFiles <- list.files(path = ".", pattern = "xls", all.files = FALSE, full.names = FALSE)
+  Index <- data.frame(
+    OldNames = ListFiles, 
+    NewNames = paste0("Plate_", 1:length(ListFiles)),
+    DataFrames = paste0("data_", 1:length(ListFiles))
+    )
+  numbName <- 1
+  while (numbName <= length(ListFiles)) {
+    PlatenumbName <- Index$OldNames[numbName]
+    assign(paste0("Plate_", numbName), PlatenumbName)
+    numbName <- numbName + 1
+  }
+rm(PlatenumbName)
+
+#-----------
+#Function_1: check_NA
+#Purpose: Check if any values in Efficiency column are NA
+#Parameters: numeric efficiency column
+#Return: checked efficiency columns
+
+check_NA <- function(data) {
+  
+  if (any(is.na(data))) {
+    NoNAs <- data %>%
+      filter(!is.na(CT), !is.na(Quantity), !is.na(Efficiency))
+    return(NoNAs)
+    
+  } else {
+    return(NULL)
+    
+    }
+}
+
+#----------
+#Function_2: check_efficiency
+#Purpose: check the efficiency range of the data frame
+#Parameters: data frame and efficiency range
+#Return: modified / unmodified data frame
+
+check_efficiency <- function(data, range) {
+    # Check if 'Efficiency' column exists
+  if ("Efficiency" %in% colnames(data)) {
+    # Round the 'Efficiency' column to two decimal places
+    rounded_efficiency <- round(data$Efficiency, 2)
+    # Check if all rounded values are within the specified range
+    if (all(rounded_efficiency >= range[1] & rounded_efficiency <= range[2])) {
+      # Keep the data frame if it meets the criteria
+      cat("Great! Your standard curve is acceptable!\n")
+      return(TRUE) 
+      
+    } else {
+      # Exclude the data frame if it does not meet the criteria
+      cat("STOP! Please check your Standard Curve before proceeding.\n")
+      return(FALSE)  
+    }
+  } else {
+    #Display error statement 
+    stop("Error: The column 'Efficiency' does not exist in the data frame.")
+  }
+}
+
+#----------
+#Function_4: check_bactin
+#Purpose: check if bactin is on the dataframe and rename it
+#Parameters: data frame and efficiency range
+#Return: modified / unmodified data frame
+
+check_bactin_in_dataframes <- function(data) {
+
+    # Extend a If statement to Find bactin dataset
+    if (any(grepl("bactin", data[['Target Name']], ignore.case = TRUE))) {
+      
+      # Generate Filtering of the Samples
+      filtered_df <- data %>%
+        #Select some columns
+        select('Sample Name', 'Target Name', Task, CT, Quantity, Efficiency, HIGHSD, NOAMP) %>% 
+        #Eliminate everything that doesn't correspond to a number in CT
+        filter(!is.na(CT)) %>%
+        #And eliminate not usefull columns
+        select(-HIGHSD, -NOAMP)
+    
+        #Return modified data frame
+        return(filtered_df)
+        
+      } else {
+        #Return nothing if Bactin exist
+      }
+}
+
+#----------
+#Function_5: check_genes_into_df
+#Purpose: check if bactin is NOT in the dataframe and rename it
+#Parameters: data frame and efficiency range
+#Return: modified / unmodified data frame
+
+check_genes_into_df <- function(data) {
+  
+    # Extend a If statement to Find bactin dataset
+    if (!any(grepl("bactin", data[['Target Name']], ignore.case = TRUE))) {
+      
+      # Correct CT and Efficiency as numeric and not characters
+      data$CT <- as.numeric(as.character(data$CT))
+      data$Efficiency <- as.numeric(as.character(data$Efficiency))
+        
+        filtered_df <- data %>%
+          #Select some columns
+          select(`Sample Name`, `Target Name`, Task, CT, Quantity, Efficiency, HIGHSD, NOAMP) %>% 
+          #Eliminate everything that doesn't correspond to a number in CT
+          filter(!is.na(CT)) %>%
+          #And eliminate not usefull columns
+          select(-HIGHSD, -NOAMP)
+        
+        #Return modified data frame
+        return(filtered_df)
+        
+      } else {
+        #Return nothing if Bactin exist
+        return(NULL)  
+   }
+}
+
+#----------
+#Function_6: Calculate_Mean_Quantity
+#Purpose: check if bactin is NOT in the dataframe and rename it
+#Parameters: data frame and efficiency range
+#Return: modified / unmodified data frame
+
+Calculate_Mean_Quantity <- function(data) {
+  
+  if ( exists(paste0("Corrected_", length(ListFiles))) ) {
+      
+      # Calculate CT mean and Quantity mean of duplicated samples!
+      Dup <- data %>%
+        filter(Task != "STANDARD", `Sample Name` %in% `Sample Name`[duplicated(`Sample Name`)]) %>%
+        mutate(pair_index = rep(1:ceiling(n() / 2), each = 2)[1:n()]) %>%
+        group_by(pair_index) %>%
+        summarize(
+          `Sample Name` = first(`Sample Name`),              
+          `Target Name` = first(`Target Name`),
+          `Task` = first(`Task`),
+          across(where(is.numeric), mean, na.rm = TRUE)) %>%
+        select(-pair_index)
+        
+      # Combine Duplicated and Not Duplicated into 1 dataframe
+      NoDup <- data %>% 
+        filter(!( `Sample Name` %in% `Sample Name`[duplicated(`Sample Name`)]), Task != "STANDARD")
+      
+      MeanAll <- bind_rows(Dup, NoDup)
+      MeanAll <- (MeanAll[order(MeanAll$'Sample Name', decreasing = FALSE), ])
+      
+      #Return modified data frame
+      return(MeanAll)
+        
+      } else {
+        
+      #Return nothing if Bactin exist
+      return(NULL)  
+   }
+}
+
+##########################  
+##########################          Functions for Data Manipulation
+##########################  End
+
+```
+
+## Load Samples and Manipulate data
+```{r,warning=FALSE,message=FALSE,echo=TRUE}
+##########################  Start
+##########################          Load Samples and Manipulate data
+##########################
+
+imported_data <- list()
+sample <- 1
+while ( sample <= length(ListFiles) ) {
+    
+    # Load all excels into the environment
+    data_sample <- read_excel(ListFiles[sample], col_names = TRUE, skip = 46)
+    
+    # Change CT, Quantity, and Efficiency into numbers
+    data_sample$CT <- as.numeric(as.character(data_sample$CT))
+    data_sample$Efficiency <- as.numeric(as.character(data_sample$Efficiency))
+    data_sample$Quantity <- as.numeric(as.character(data_sample$Quantity))
+    
+    # Assign new names to data_sample standard name
+    assign(paste0("data_", sample), data_sample)
+    
+    # Import data into a list to used it later
+    imported_data[[sample]] <- data_sample
+    
+    # Little purge
+    rm(data_sample)
+    
+    sample <- sample + 1
+}
+
+### Set variables 1
+generic_names <- paste0("data_", 1:length(ListFiles))
+specific_names <- paste0("Corrected_", 1:length(ListFiles))
+
+# Check NAs in all datas!
+i <- 1
+for (i in seq_along(imported_data)) {
+  assign(paste0("NoNAs_data_", i), check_NA(imported_data[[i]]))
+  
+  #Generate a list with the removed samples.
+  target_df <- get(paste0("NoNAs_data_", i))
+  
+  # Filtra las filas de `imported_data[[i]]` cuyo `Well Position` no esté en `target_df`
+  Removed <- imported_data[[i]] %>%
+    filter(!`Well Position` %in% target_df[["Well Position"]])
+  
+  # Rename new list
+  assign(paste0("RemovedSamples_data_", i), Removed)
+  
+  #Write all files for each sample!!
+  write_csv(get(paste0("RemovedSamples_data_", i)), paste0("RemovedSamples_data_", i, ".csv"))
+  
+  # Little purge
+  rm(list = paste0("RemovedSamples_data_", i))
+  rm(Removed)
+}
+
+specific_names_get <- lapply(paste0("NoNAs_data_", 1:length(ListFiles)), get)
+# Apply check_efficiency function to check the efficiency range of the data frame
+efficiency_range <- c(85, 105) #The range is temporarily adjusted to accept data_3 and data_7 (87.89, 87.04)
+StandardCurve <- Filter(function(df) check_efficiency(df, efficiency_range), specific_names_get)
+
+## Apply the check_genes function to each data frame in the list and filter the list with the qualifying data frames
+# Apply the function check_bactin_in_dataframes to each imported_data_frame
+NoBactin_Index <- which(sapply(lapply(specific_names_get, check_bactin_in_dataframes), is.null))
+Bactin_Index <- setdiff(1:length(specific_names_get), NoBactin_Index)
+
+for (i in Bactin_Index) {
+  AAA <- check_bactin_in_dataframes(specific_names_get[[i]])
+  Corrected_1 <- AAA
+  rm(AAA)
+}
+
+counter <- 2
+for (i in NoBactin_Index) {
+  AAA <- check_genes_into_df(specific_names_get[[i]])
+  assign(paste0("Corrected_", counter), AAA)
+  counter <- counter + 1
+  rm(AAA)
+}
+
+Corrected_names <- lapply(paste0("Corrected_", 1:length(ListFiles)), get)
+
+##########################
+##########################          Load Samples and Manipulate data
+##########################  End
+```
+
+# Calculate Mean CT, Mean Quantity and Quartiles
+```{r,warning=FALSE,message=FALSE,echo=TRUE}
+##########################  Start
+##########################          Calculate Mean CT, Mean Quantity and Quartiles
+##########################
+
+for (i in 1:length(ListFiles)) {
+  AAA <- Calculate_Mean_Quantity(Corrected_names[[i]])
+  assign(paste0("Mean_data_", i), AAA)
+  rm(NoDup, Dup, MeanAll, AAA)
+}
+
+# Filter Bactin by all samples and 
+BactinSamples <- get(paste0("Mean_data_", Bactin_Index))[['Sample Name']]
+
+for (i in 2:length(ListFiles)) {
+  
+  # Merged Control and Gene in 1 dataframe
+  Matched <- merge(get(paste0("Mean_data_", Bactin_Index)), (get(paste0("Mean_data_", i))), by = 'Sample Name', all.x = FALSE)
+
+  #Calculate the percentage between 
+  Matched2 <- data.frame(
+  Sample_Name = Matched$'Sample Name',
+  Control = Matched$'Target Name.x',
+  Gene = Matched$'Target Name.y',
+  MeanRatio = (Matched$CT.y / Matched$CT.x) * 100 ,
+  QuantityRatio = (Matched$Quantity.y / Matched$Quantity.x) * 100)
+  
+  #Write all data rawdata
+  #write_csv(Matched, paste0("Match_ControlvGene_rawdata_", i, ".csv"))
+  
+  # Create a Number for all dataframes
+  assign(paste0("Merged_data_", i), Matched2)
+  #Write all data rawdata
+  #write_csv(Matched2, paste0("Match_ControlvGene_Mean_", i, ".csv"))
+  
+  #Little Purge
+  rm(Matched, Matched2)
+}
+
+GeneRatio <- 2:length(ListFiles)
+# Filter Bactin by all samples and 
+
+i <- 2
+for (i in GeneRatio) {
+  
+  #Calculate median values per gene (To Do: Place onto graph if needed)
+  temp1 <- median((get(paste0("Merged_data_", i)))[['QuantityRatio']])
+  
+  ### Calculate IQR and remove outliers for each gene
+  Q1_temp1 <- quantile((get(paste0("Merged_data_", i)))[['QuantityRatio']], .25)
+  Q3_temp1 <- quantile((get(paste0("Merged_data_", i)))[['QuantityRatio']], .75)
+  IQR_temp1 <- IQR((get(paste0("Merged_data_", i)))[['QuantityRatio']])
+
+  #
+  PlotData_temp1 <- subset(
+  (get(paste0("Merged_data_", i))), (get(paste0("Merged_data_", i)))[['QuantityRatio']] > (Q1_temp1 - 1.5*IQR_temp1) & (get(paste0("Merged_data_", i)))[['QuantityRatio']] < (Q3_temp1 + 1.5*IQR_temp1)
+  )
+  assign(paste0("PlotData_", i), PlotData_temp1)
+  
+  #Little purge
+  rm(Q1_temp1, Q3_temp1, IQR_temp1, temp1, PlotData_temp1)
+}
+
+##########################  
+##########################          Calculate Mean CT, Mean Quantity and Quartiles
+##########################  End
+```
+
+## Write All Mean CT and Mean Quantity
+```{r,warning=FALSE,message=FALSE,echo=TRUE}
+##########################  Start
+##########################          Write All Mean CT and Mean Quantity in 1 File
+##########################
+
+AAA <- merge((get(paste0("Mean_data_", 1))), (get(paste0("Mean_data_", 2))), by = 'Sample Name', all = TRUE)
+    AAA <- AAA %>%
+      select(-matches("pair_index"), 
+             -matches("Target_Name"), 
+             -matches("Task"), 
+             -matches("Efficiency")) %>%
+      rename(
+             !!paste0(Mean_data_1[['Target Name']][1], '_CT') := CT.x,
+             !!paste0(Mean_data_1[['Target Name']][1], '_Quantity') := Quantity.x,
+             !!paste0(Mean_data_2[['Target Name']][1], '_CT') := CT.y,
+             !!paste0(Mean_data_2[['Target Name']][1], '_Quantity') := Quantity.y
+             ) %>%
+      select(-matches("Target Name"))
+
+for (gene_value in GeneRatio) {
+
+  if ( gene_value == 3 ) {
+    
+    AAA <- merge(AAA, (get(paste0("Mean_data_", 3))), by = 'Sample Name', all = TRUE)
+      AAA <- AAA %>%
+        select(-matches("pair_index"), 
+               -matches("Target_Name"), 
+               -matches("Task"), 
+               -matches("Efficiency")) %>%
+        rename(
+               !!paste0(Mean_data_3[['Target Name']][1], '_CT') := CT,
+               !!paste0(Mean_data_3[['Target Name']][1], '_Quantity') := Quantity,
+               ) %>%
+        select(-matches("Target Name"))
+      
+  } else if ( gene_value == 4 ) {
+    
+    AAA <- merge(AAA, (get(paste0("Mean_data_", 4))), by = 'Sample Name', all = TRUE)
+      AAA <- AAA %>%
+        select(-matches("pair_index"), 
+               -matches("Target_Name"), 
+               -matches("Task"), 
+               -matches("Efficiency")) %>%
+        rename(
+               !!paste0(Mean_data_4[['Target Name']][1], '_CT') := CT,
+               !!paste0(Mean_data_4[['Target Name']][1], '_Quantity') := Quantity,
+               ) %>%
+        select(-matches("Target Name"))
+  
+  } else if ( gene_value == 5 ) {
+  
+    AAA <- merge(AAA, (get(paste0("Mean_data_", 5))), by = 'Sample Name', all = TRUE)
+      AAA <- AAA %>%
+        select(-matches("pair_index"), 
+               -matches("Target_Name"), 
+               -matches("Task"), 
+               -matches("Efficiency")) %>%
+        rename(
+               !!paste0(Mean_data_5[['Target Name']][1], '_CT') := CT,
+               !!paste0(Mean_data_5[['Target Name']][1], '_Quantity') := Quantity,
+               ) %>%
+        select(-matches("Target Name"))
+      
+  } else if ( gene_value == 6 ) {
+    
+  AAA <- merge(AAA, (get(paste0("Mean_data_", 6))), by = 'Sample Name', all = TRUE)
+    AAA <- AAA %>%
+      select(-matches("pair_index"), 
+             -matches("Target_Name"), 
+             -matches("Task"), 
+             -matches("Efficiency")) %>%
+      rename(
+             !!paste0(Mean_data_6[['Target Name']][1], '_CT') := CT,
+             !!paste0(Mean_data_6[['Target Name']][1], '_Quantity') := Quantity,
+             ) %>%
+      select(-matches("Target Name"))
+    
+  } else {
+  }
+}
+
+AllGenes_AllSamples_Approved <- AAA
+rm(AAA)
+write_excel_csv(AllGenes_AllSamples_Approved, "AllGenes_AllSamples_Approved.csv", delim = ";")
+    
+##########################  
+##########################          Write All Mean CT and Mean Quantity
+##########################  End
+#
+#
+#
+##########################  Start
+##########################          Write All MeanRatios CT and MeanRatio Quantity in 1 File
+##########################
+
+gene_value <- 1
+for (gene_value in GeneRatio) {
+  
+  if ( gene_value ==2 ) {
+  
+    AAA <- get(paste0("Merged_data_", 2))
+    AAA <- AAA %>%
+      rename(
+             !!paste0(Merged_data_2[['Gene']][1], '/Bactin_MeanRatio') := MeanRatio,
+             !!paste0(Merged_data_2[['Gene']][1], '/Bactin_QuantityRatio') := QuantityRatio
+             ) %>%
+      select(-matches("Control"), -matches("Gene"))
+    
+  } else if ( gene_value ==3 ) {
+    
+    AAA <- merge((get(paste0("Merged_data_", 2))), (get(paste0("Merged_data_", 3))), by = 'Sample_Name', all = TRUE)
+    AAA <- AAA %>%
+      rename(
+             !!paste0(Merged_data_2[['Gene']][1], '/Bactin_MeanRatio') := MeanRatio.x,
+             !!paste0(Merged_data_2[['Gene']][1], '/Bactin_QuantityRatio') := QuantityRatio.x,
+             !!paste0(Merged_data_3[['Gene']][1], '/Bactin_MeanRatio') := MeanRatio.y,
+             !!paste0(Merged_data_3[['Gene']][1], '/Bactin_QuantityRatio') := QuantityRatio.y
+             ) %>%
+      select(-matches("Control"), -matches("Gene"))
+    
+  } else if ( gene_value == 4 ) {
+    
+    AAA <- merge(AAA, (get(paste0("Merged_data_", 4))), by = 'Sample_Name', all = TRUE)
+      AAA <- AAA %>%
+        rename(
+             !!paste0(Merged_data_4[['Gene']][1], '/Bactin_MeanRatio') := MeanRatio,
+             !!paste0(Merged_data_4[['Gene']][1], '/Bactin_QuantityRatio') := QuantityRatio,
+             ) %>%
+        select(-matches("Control"), -matches("Gene"))
+        
+  } else if ( gene_value == 5 ) {
+    
+    AAA <- merge(AAA, (get(paste0("Merged_data_", 5))), by = 'Sample_Name', all = TRUE)
+      AAA <- AAA %>%
+        rename(
+             !!paste0(Merged_data_5[['Gene']][1], '/Bactin_MeanRatio') := MeanRatio,
+             !!paste0(Merged_data_5[['Gene']][1], '/Bactin_QuantityRatio') := QuantityRatio,
+             ) %>%
+        select(-matches("Control"), -matches("Gene"))
+  
+  } else if ( gene_value == 6 ) {
+    
+    AAA <- merge(AAA, (get(paste0("Merged_data_", 6))), by = 'Sample_Name', all = TRUE)
+      AAA <- AAA %>%
+        rename(
+             !!paste0(Merged_data_6[['Gene']][1], '/Bactin_MeanRatio') := MeanRatio,
+             !!paste0(Merged_data_6[['Gene']][1], '/Bactin_QuantityRatio') := QuantityRatio,
+             ) %>%
+        select(-matches("Control"), -matches("Gene"))
+  } else {
+  }
+}
+
+AllRatios_AllSamples_Approved <- AAA
+rm(AAA)
+write_excel_csv(AllRatios_AllSamples_Approved, "AllRatios_AllSamples_Approved.csv", delim = ";")
+
+##########################  
+##########################          Write All MeanRatios CT and MeanRatio Quantity in 1 File
+##########################  End
+#
+#
+#
+##########################  Start
+##########################          Plot and Rocking - Quantity Mean!!!
+##########################  
+
+gene_value <- 1
+for (gene_value in GeneRatio) {
+  
+  if ( gene_value == 2 ) {
+
+    ggplot_2s <- AllRatios_AllSamples_Approved %>%
+        rename(
+             Mean = colnames(AllRatios_AllSamples_Approved)[2],
+             Quantity = colnames(AllRatios_AllSamples_Approved)[3])
+    ggplot_2s$Gene <- get(paste0("Merged_data_", 2))[['Gene']][1]
+
+    #Create color palette for each gene in graph
+    colors <- c("darkorange")
+    
+    Quantity <- ggplot(
+      ggplot_2s, aes(x = Gene, y = Quantity, fill = Gene)) +
+        geom_boxplot(outlier.colour="black", outlier.shape=16,
+                     outlier.size=1, notch=FALSE) +
+        geom_jitter(width = 0.1) +
+        scale_y_continuous(limits = c(0, 100)) +
+        labs(title = "", x = "", y = "Gene/Bactin Ratio") + 
+        theme(legend.position = "right") +
+        theme(axis.text.x = element_blank(),
+              axis.ticks.x = element_blank()) +
+        scale_color_manual(values = colors)
+    
+    } else if ( gene_value == 3 ) {
+
+    #Subsampling!!!
+    ggplot_2s <- AllRatios_AllSamples_Approved %>%
+      select(1,3,5) %>%
+      rename(
+        !!get(paste0("Merged_data_", 2))[['Gene']][1] := colnames(AllRatios_AllSamples_Approved)[3],
+        !!get(paste0("Merged_data_", 3))[['Gene']][1] := colnames(AllRatios_AllSamples_Approved)[5])
+    
+    #Long Format creation
+    ggplot_2s_long <- ggplot_2s %>%
+      pivot_longer(cols = c(get(paste0("Merged_data_", 2))[['Gene']][1], 
+                            get(paste0("Merged_data_", 3))[['Gene']][1]), 
+               names_to = "Gene", 
+               values_to = "Quantity")
+    
+    # Plot Construction
+    Quantity <- ggplot(
+      ggplot_2s_long, aes(x = Gene, y = Quantity, fill = Gene)) +
+        geom_boxplot(outlier.colour="black", outlier.shape=16,
+                     outlier.size=1, notch=FALSE) +
+        geom_jitter(width = 0.1) +
+        scale_y_continuous(limits = c(0, 100)) +
+        labs(title = "", x = "", y = "Gene/Bactin Ratio") + 
+        theme(legend.position = "right") +
+        theme(axis.text.x = element_blank(),
+              axis.ticks.x = element_blank()) +
+        scale_fill_manual(values=c("#E69F00", "#56B4E9"))
+    
+    } else if ( gene_value == 4 ) {
+
+    #Subsampling!!!
+    ggplot_2s <- AllRatios_AllSamples_Approved %>%
+      select(1,3,5,7) %>%
+      rename(
+        !!get(paste0("Merged_data_", 2))[['Gene']][1] := colnames(AllRatios_AllSamples_Approved)[3],
+        !!get(paste0("Merged_data_", 3))[['Gene']][1] := colnames(AllRatios_AllSamples_Approved)[5],
+        !!get(paste0("Merged_data_", 4))[['Gene']][1] := colnames(AllRatios_AllSamples_Approved)[7],
+        )
+    
+    #Long Format creation
+    ggplot_2s_long <- ggplot_2s %>%
+      pivot_longer(cols = c(get(paste0("Merged_data_", 2))[['Gene']][1], 
+                            get(paste0("Merged_data_", 3))[['Gene']][1], 
+                            get(paste0("Merged_data_", 4))[['Gene']][1]), 
+               names_to = "Gene", 
+               values_to = "Quantity")
+    
+    # Plot Construction
+    Quantity <- ggplot(
+      ggplot_2s_long, aes(x = Gene, y = Quantity, fill = Gene)) +
+        geom_boxplot(outlier.colour="black", outlier.shape=16,
+                     outlier.size=1, notch=FALSE) +
+        geom_jitter(width = 0.1) +
+        scale_y_continuous(limits = c(0, 100)) +
+        labs(title = "", x = "", y = "Gene/Bactin Ratio") + 
+        theme(legend.position = "right") +
+        theme(axis.text.x = element_blank(),
+              axis.ticks.x = element_blank()) +
+        scale_fill_manual(values=c("#E69F00", "#56B4E9", "#A1A1E9"))
+    
+    } else if ( gene_value == 5 ) {
+
+    #Subsampling!!!
+    ggplot_2s <- AllRatios_AllSamples_Approved %>%
+      select(1,3,5,7,9) %>%
+      rename(
+        !!get(paste0("Merged_data_", 2))[['Gene']][1] := colnames(AllRatios_AllSamples_Approved)[3],
+        !!get(paste0("Merged_data_", 3))[['Gene']][1] := colnames(AllRatios_AllSamples_Approved)[5],
+        !!get(paste0("Merged_data_", 4))[['Gene']][1] := colnames(AllRatios_AllSamples_Approved)[7],
+        !!get(paste0("Merged_data_", 5))[['Gene']][1] := colnames(AllRatios_AllSamples_Approved)[9]
+        )
+    
+    #Long Format creation
+    ggplot_2s_long <- ggplot_2s %>%
+      pivot_longer(cols = c(get(paste0("Merged_data_", 2))[['Gene']][1], 
+                            get(paste0("Merged_data_", 3))[['Gene']][1], 
+                            get(paste0("Merged_data_", 4))[['Gene']][1], 
+                            get(paste0("Merged_data_", 5))[['Gene']][1]), 
+               names_to = "Gene", 
+               values_to = "Quantity")
+    
+    # Plot Construction
+    Quantity <- ggplot(
+      ggplot_2s_long, aes(x = Gene, y = Quantity, fill = Gene)) +
+        geom_boxplot(outlier.colour="black", outlier.shape=16,
+                     outlier.size=1, notch=FALSE) +
+        geom_jitter(width = 0.1) +
+        scale_y_continuous(limits = c(0, 100)) +
+        labs(title = "", x = "", y = "Gene/Bactin Ratio") + 
+        theme(legend.position = "right") +
+        theme(axis.text.x = element_blank(),
+              axis.ticks.x = element_blank()) +
+        scale_fill_manual(values=c("#E69F00", "#56B4E9", "#A1A1E9", "#D9F5A1"))
+    
+    } else if ( gene_value == 6 ) {
+
+    #Subsampling!!!
+    ggplot_2s <- AllRatios_AllSamples_Approved %>%
+      select(1,3,5,7,9,11) %>%
+      rename(
+        !!get(paste0("Merged_data_", 2))[['Gene']][1] := colnames(AllRatios_AllSamples_Approved)[3],
+        !!get(paste0("Merged_data_", 3))[['Gene']][1] := colnames(AllRatios_AllSamples_Approved)[5],
+        !!get(paste0("Merged_data_", 4))[['Gene']][1] := colnames(AllRatios_AllSamples_Approved)[7],
+        !!get(paste0("Merged_data_", 5))[['Gene']][1] := colnames(AllRatios_AllSamples_Approved)[9],
+        !!get(paste0("Merged_data_", 6))[['Gene']][1] := colnames(AllRatios_AllSamples_Approved)[11]
+        )
+    
+    #Long Format creation
+    ggplot_2s_long <- ggplot_2s %>%
+      pivot_longer(cols = c(get(paste0("Merged_data_", 2))[['Gene']][1], 
+                            get(paste0("Merged_data_", 3))[['Gene']][1], 
+                            get(paste0("Merged_data_", 4))[['Gene']][1], 
+                            get(paste0("Merged_data_", 5))[['Gene']][1],
+                            get(paste0("Merged_data_", 6))[['Gene']][1],
+                            ), 
+               names_to = "Gene", 
+               values_to = "Quantity")
+    
+    # Plot Construction
+    Quantity <- ggplot(
+      ggplot_2s_long, aes(x = Gene, y = Quantity, fill = Gene)) +
+        geom_boxplot(outlier.colour="black", outlier.shape=16,
+                     outlier.size=1, notch=FALSE) +
+        geom_jitter(width = 0.1) +
+        scale_y_continuous(limits = c(0, 100)) +
+        labs(title = "", x = "", y = "Gene/Bactin Ratio") + 
+        theme(legend.position = "right") +
+        theme(axis.text.x = element_blank(),
+              axis.ticks.x = element_blank()) +
+        scale_fill_manual(values=c("#FF5733", "#33FF57", "#3357FF", "#FF33A8", "#A1A1E9"))
+    
+    } else {
+    }
+}
+
+tiff("QuantityMean_BoxPlot.tiff",width = 1200, height = 1200, units = "px", res = 200)
+Quantity
+dev.off()
+
+##########################  End
+##########################          Plot and Rocking - Quantity Mean!!!
+##########################  
+#
+#
+#
+##########################  Start
+##########################          Plot and Rocking - Log 2 Quantity Mean!!!
+##########################  
+
+gene_value <- 1
+for (gene_value in GeneRatio) {
+  
+  if ( gene_value == 2 ) {
+
+    ggplot_2s <- AllRatios_AllSamples_Approved %>%
+        rename(
+             Mean = colnames(AllRatios_AllSamples_Approved)[2],
+             Quantity = colnames(AllRatios_AllSamples_Approved)[3])
+    ggplot_2s$Gene <- get(paste0("Merged_data_", 2))[['Gene']][1]
+
+    #Create color palette for each gene in graph
+    colors <- c("darkorange")
+    
+    Quantity <- ggplot(
+      ggplot_2s, aes(x = Gene, y = log2(Quantity), fill = Gene)) +
+        geom_boxplot(outlier.colour="black", outlier.shape=16,
+                     outlier.size=1, notch=FALSE) +
+        geom_jitter(width = 0.1) +
+        scale_y_continuous(limits = c(-20, 20)) +
+        labs(title = "", x = "", y = expression("log"[2]*" Gene/Bactin Ratio")) + 
+        theme(legend.position = "right") +
+        theme(axis.text.x = element_blank(),
+              axis.ticks.x = element_blank()) +
+        scale_color_manual(values = colors)
+    
+    } else if ( gene_value == 3 ) {
+
+    #Subsampling!!!
+    ggplot_2s <- AllRatios_AllSamples_Approved %>%
+      select(1,3,5) %>%
+      rename(
+        !!get(paste0("Merged_data_", 2))[['Gene']][1] := colnames(AllRatios_AllSamples_Approved)[3],
+        !!get(paste0("Merged_data_", 3))[['Gene']][1] := colnames(AllRatios_AllSamples_Approved)[5])
+    
+    #Long Format creation
+    ggplot_2s_long <- ggplot_2s %>%
+      pivot_longer(cols = c(get(paste0("Merged_data_", 2))[['Gene']][1], 
+                            get(paste0("Merged_data_", 3))[['Gene']][1]), 
+               names_to = "Gene", 
+               values_to = "Quantity")
+    
+    # Plot Construction
+    Quantity <- ggplot(
+      ggplot_2s_long, aes(x = Gene, y = log2(Quantity), fill = Gene)) +
+        geom_boxplot(outlier.colour="black", outlier.shape=16,
+                     outlier.size=1, notch=FALSE) +
+        geom_jitter(width = 0.1) +
+        scale_y_continuous(limits = c(-20, 20)) +
+        labs(title = "", x = "", y = expression("log"[2]*" Gene/Bactin Ratio")) +  
+        theme(legend.position = "right") +
+        theme(axis.text.x = element_blank(),
+              axis.ticks.x = element_blank()) +
+        scale_fill_manual(values=c("#E69F00", "#56B4E9"))
+    
+    } else if ( gene_value == 4 ) {
+
+    #Subsampling!!!
+    ggplot_2s <- AllRatios_AllSamples_Approved %>%
+      select(1,3,5,7) %>%
+      rename(
+        !!get(paste0("Merged_data_", 2))[['Gene']][1] := colnames(AllRatios_AllSamples_Approved)[3],
+        !!get(paste0("Merged_data_", 3))[['Gene']][1] := colnames(AllRatios_AllSamples_Approved)[5],
+        !!get(paste0("Merged_data_", 4))[['Gene']][1] := colnames(AllRatios_AllSamples_Approved)[7],
+        )
+    
+    #Long Format creation
+    ggplot_2s_long <- ggplot_2s %>%
+      pivot_longer(cols = c(get(paste0("Merged_data_", 2))[['Gene']][1], 
+                            get(paste0("Merged_data_", 3))[['Gene']][1], 
+                            get(paste0("Merged_data_", 4))[['Gene']][1]), 
+               names_to = "Gene", 
+               values_to = "Quantity")
+    
+    # Plot Construction
+    Quantity <- ggplot(
+      ggplot_2s_long, aes(x = Gene, y = log2(Quantity), fill = Gene)) +
+        geom_boxplot(outlier.colour="black", outlier.shape=16,
+                     outlier.size=1, notch=FALSE) +
+        geom_jitter(width = 0.1) +
+        labs(title = "", x = "", y = expression("log"[2]*" Gene/Bactin Ratio")) +  
+        theme(legend.position = "right") +
+        scale_y_continuous(limits = c(-20, 20)) +
+        theme(axis.text.x = element_blank(),
+              axis.ticks.x = element_blank()) +
+        scale_fill_manual(values=c("#E69F00", "#56B4E9", "#A1A1E9"))
+    
+    } else if ( gene_value == 5 ) {
+
+    #Subsampling!!!
+    ggplot_2s <- AllRatios_AllSamples_Approved %>%
+      select(1,3,5,7,9) %>%
+      rename(
+        !!get(paste0("Merged_data_", 2))[['Gene']][1] := colnames(AllRatios_AllSamples_Approved)[3],
+        !!get(paste0("Merged_data_", 3))[['Gene']][1] := colnames(AllRatios_AllSamples_Approved)[5],
+        !!get(paste0("Merged_data_", 4))[['Gene']][1] := colnames(AllRatios_AllSamples_Approved)[7],
+        !!get(paste0("Merged_data_", 5))[['Gene']][1] := colnames(AllRatios_AllSamples_Approved)[9]
+        )
+    
+    #Long Format creation
+    ggplot_2s_long <- ggplot_2s %>%
+      pivot_longer(cols = c(get(paste0("Merged_data_", 2))[['Gene']][1], 
+                            get(paste0("Merged_data_", 3))[['Gene']][1], 
+                            get(paste0("Merged_data_", 4))[['Gene']][1], 
+                            get(paste0("Merged_data_", 5))[['Gene']][1]), 
+               names_to = "Gene", 
+               values_to = "Quantity")
+    
+    # Plot Construction
+    Quantity <- ggplot(
+      ggplot_2s_long, aes(x = Gene, y = log2(Quantity), fill = Gene)) +
+        geom_boxplot(outlier.colour="black", outlier.shape=16,
+                     outlier.size=1, notch=FALSE) +
+        geom_jitter(width = 0.1) +
+        scale_y_continuous(limits = c(-20, 20)) +
+        labs(title = "", x = "", y = expression("log"[2]*" Gene/Bactin Ratio")) + 
+        theme(legend.position = "right") +
+        theme(axis.text.x = element_blank(),
+              axis.ticks.x = element_blank()) +
+        scale_fill_manual(values=c("#E69F00", "#56B4E9", "#A1A1E9", "#D9F5A1"))
+    
+    } else if ( gene_value == 6 ) {
+
+    #Subsampling!!!
+    ggplot_2s <- AllRatios_AllSamples_Approved %>%
+      select(1,3,5,7,9,11) %>%
+      rename(
+        !!get(paste0("Merged_data_", 2))[['Gene']][1] := colnames(AllRatios_AllSamples_Approved)[3],
+        !!get(paste0("Merged_data_", 3))[['Gene']][1] := colnames(AllRatios_AllSamples_Approved)[5],
+        !!get(paste0("Merged_data_", 4))[['Gene']][1] := colnames(AllRatios_AllSamples_Approved)[7],
+        !!get(paste0("Merged_data_", 5))[['Gene']][1] := colnames(AllRatios_AllSamples_Approved)[9],
+        !!get(paste0("Merged_data_", 6))[['Gene']][1] := colnames(AllRatios_AllSamples_Approved)[11]
+        )
+    
+    #Long Format creation
+    ggplot_2s_long <- ggplot_2s %>%
+      pivot_longer(cols = c(get(paste0("Merged_data_", 2))[['Gene']][1], 
+                            get(paste0("Merged_data_", 3))[['Gene']][1], 
+                            get(paste0("Merged_data_", 4))[['Gene']][1], 
+                            get(paste0("Merged_data_", 5))[['Gene']][1],
+                            get(paste0("Merged_data_", 6))[['Gene']][1],
+                            ), 
+               names_to = "Gene", 
+               values_to = "Quantity")
+    
+    # Plot Construction
+    Quantity <- ggplot(
+      ggplot_2s_long, aes(x = Gene, y = log2(Quantity), fill = Gene)) +
+        geom_boxplot(outlier.colour="black", outlier.shape=16,
+                     outlier.size=1, notch=FALSE) +
+        geom_jitter(width = 0.1) +
+        scale_y_continuous(limits = c(-20, 20)) +
+        labs(title = "", x = "", y = expression("log"[2]*" Gene/Bactin Ratio")) + 
+        theme(legend.position = "right") +
+        theme(axis.text.x = element_blank(),
+              axis.ticks.x = element_blank()) +
+        scale_fill_manual(values=c("#FF5733", "#33FF57", "#3357FF", "#FF33A8", "#A1A1E9"))
+    
+    } else {
+    }
+}
+
+tiff("Log2()QuantityMean_BoxPlot.tiff",width = 1200, height = 1200, units = "px", res = 200)
+Quantity
+dev.off()
+##########################  End
+##########################          Plot and Rocking - Log 2 Quantity Mean!!!
+##########################  
+```
+
+
+
