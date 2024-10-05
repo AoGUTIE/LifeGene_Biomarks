@@ -567,6 +567,9 @@ GeneNames <- get(paste0("Merged_data_",i))[['Gene']][1]
 JustMeans <- colnames(AllRatios_AllSamples_Approved %>% select(starts_with(GeneNames)))
 Baltimore_AllData_AllGene <- Baltimore_AllData_AllGene %>%
     relocate(all_of(JustMeans), .after = matches(paste0(GeneNames, '_')))
+
+names(Baltimore_AllData_AllGene)[names(Baltimore_AllData_AllGene) == 'Sample_Name'] <- 'Sample_ID'
+  
 }
 
 # Write the final dataframe into a csv file.
