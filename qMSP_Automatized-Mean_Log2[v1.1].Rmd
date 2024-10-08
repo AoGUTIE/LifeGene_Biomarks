@@ -1,5 +1,5 @@
 ---
-title: "qMSP_Automatized-Mean_Log2[v1.1]"
+title: "qMSP_Automatized-Mean_Log2[v1.2]"
 author: "Alvaro Gutierrez"
 date: "2024-10-01"
 output:
@@ -129,8 +129,8 @@ check_bactin_in_dataframes <- function(data) {
         #Select some columns
         select('Sample Name', 'Target Name', Task, CT, Quantity, Efficiency, HIGHSD, NOAMP) %>% 
         #Eliminate everything that doesn't correspond to a number in CT
-        filter(!is.na(CT)) %>%
-        #And eliminate not usefull columns
+        filter(!is.na(CT) ) %>%
+        filter(HIGHSD != "Y", NOAMP != "Y") %>%
         select(-HIGHSD, -NOAMP)
     
         #Return modified data frame
@@ -149,6 +149,7 @@ check_bactin_in_dataframes <- function(data) {
 
 check_genes_into_df <- function(data) {
   
+  BactinSampleNames <- Corrected_1$'Sample Name'
     # Extend a If statement to Find bactin dataset
     if (!any(grepl("bactin", data[['Target Name']], ignore.case = TRUE))) {
       
@@ -160,9 +161,13 @@ check_genes_into_df <- function(data) {
           #Select some columns
           select(`Sample Name`, `Target Name`, Task, CT, Quantity, Efficiency, HIGHSD, NOAMP) %>% 
           #Eliminate everything that doesn't correspond to a number in CT
-          filter(!is.na(CT)) %>%
-          #And eliminate not usefull columns
+          filter(!is.na(CT) ) %>%
+          filter(HIGHSD != "Y", NOAMP != "Y") %>%
           select(-HIGHSD, -NOAMP)
+        
+        # Filtra 'Sample Name' según BactinSampleNames
+        filtered_df <- filtered_df %>% 
+          filter(`Sample Name` %in% BactinSampleNames)
         
         #Return modified data frame
         return(filtered_df)
@@ -467,7 +472,7 @@ for (i in seq_along(genes_of_interest)) {
   # Empty List
   gene_files <- list()
   
-  for (j in 1:18) {
+  for (j in 1:length(ListFiles)) {
     # Get each dynamic name of each dataframe
     df <- get(paste0("NoNAs_data_", j))
     
@@ -622,7 +627,7 @@ for (i in GeneRatio) {
       geom_boxplot(outlier.colour = "black", outlier.shape = 16,
                    outlier.size = 1, notch = FALSE) +
       geom_jitter(width = 0.1) +
-      scale_y_continuous(limits = c(0, 100)) +
+      scale_y_continuous(limits = c(-10, 100)) +
       labs(title = "", x = "", y = "Gene/Bactin Ratio") + 
       theme(legend.position = "right") +
       theme(axis.text.x = element_blank(),
@@ -673,8 +678,8 @@ for (i in GeneRatio) {
       geom_boxplot(outlier.colour = "black", outlier.shape = 16,
                    outlier.size = 1, notch = FALSE) +
       geom_jitter(width = 0.1) +
-      scale_y_continuous(limits = c(0, 10)) +
-      labs(title = "", x = "", y = "Gene/Bactin Ratio") + 
+      scale_y_continuous(limits = c(-20, 10)) +
+      labs(title = "", x = "", y = expression(Log[2]~"Gene/Bactin Ratio")) +
       theme(legend.position = "right") +
       theme(axis.text.x = element_blank(),
             axis.ticks.x = element_blank()) +
